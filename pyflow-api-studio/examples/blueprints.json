@@ -1,0 +1,227 @@
+{
+  "connections": [
+    {
+      "id": "mock",
+      "name": "Mock API (HTTPX transport only)",
+      "base_url": "https://mock.example",
+      "approved_hosts": [
+        "mock.example"
+      ]
+    }
+  ],
+  "endpoints": [
+    {
+      "id": "drivers",
+      "name": "Fetch drivers",
+      "connection_id": "mock",
+      "path": "/drivers",
+      "output_path": "items"
+    },
+    {
+      "id": "detail",
+      "name": "Driver detail",
+      "connection_id": "mock",
+      "path": "/drivers/{id}",
+      "path_params": {
+        "id": "{{ item.id }}"
+      }
+    },
+    {
+      "id": "paginated",
+      "name": "Paginated drivers",
+      "connection_id": "mock",
+      "path": "/drivers",
+      "pagination": {
+        "strategy": "offset",
+        "parameter": "offset",
+        "items_path": "items",
+        "page_size": 2
+      }
+    },
+    {
+      "id": "teams",
+      "name": "Fetch teams",
+      "connection_id": "mock",
+      "path": "/teams",
+      "output_path": "items"
+    }
+  ],
+  "workflows": [
+    {
+      "id": "example_a",
+      "name": "A: Active drivers to JSON",
+      "nodes": [
+        {
+          "id": "fetch",
+          "type": "http",
+          "dependencies": [],
+          "config": {
+            "endpoint_id": "drivers"
+          }
+        },
+        {
+          "id": "active",
+          "type": "filter",
+          "dependencies": [
+            "fetch"
+          ],
+          "config": {
+            "operation": "filter",
+            "expression": "[?active == `true`]"
+          }
+        },
+        {
+          "id": "save",
+          "type": "save_json",
+          "dependencies": [
+            "active"
+          ],
+          "config": {}
+        }
+      ]
+    },
+    {
+      "id": "example_b",
+      "name": "B: Driver details fan-out",
+      "nodes": [
+        {
+          "id": "fetch",
+          "type": "http",
+          "dependencies": [],
+          "config": {
+            "endpoint_id": "drivers"
+          }
+        },
+        {
+          "id": "ids",
+          "type": "transform",
+          "dependencies": [
+            "fetch"
+          ],
+          "config": {
+            "operation": "select",
+            "fields": {
+              "id": "id"
+            }
+          }
+        },
+        {
+          "id": "details",
+          "type": "http",
+          "dependencies": [
+            "ids"
+          ],
+          "config": {
+            "endpoint_id": "detail",
+            "foreach": "{{ nodes.ids.output.data }}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "example_c",
+      "name": "C: Pagination to Parquet",
+      "nodes": [
+        {
+          "id": "fetch",
+          "type": "http",
+          "dependencies": [],
+          "config": {
+            "endpoint_id": "paginated"
+          }
+        },
+        {
+          "id": "flat",
+          "type": "transform",
+          "dependencies": [
+            "fetch"
+          ],
+          "config": {
+            "operation": "flatten"
+          }
+        },
+        {
+          "id": "select",
+          "type": "transform",
+          "dependencies": [
+            "flat"
+          ],
+          "config": {
+            "operation": "select",
+            "fields": {
+              "id": "id",
+              "name": "\"profile.name\""
+            }
+          }
+        },
+        {
+          "id": "export",
+          "type": "export_parquet",
+          "dependencies": [
+            "select"
+          ],
+          "config": {}
+        }
+      ]
+    },
+    {
+      "id": "example_d",
+      "name": "D: Parallel APIs and merge",
+      "nodes": [
+        {
+          "id": "drivers",
+          "type": "http",
+          "dependencies": [],
+          "config": {
+            "endpoint_id": "drivers"
+          }
+        },
+        {
+          "id": "teams",
+          "type": "http",
+          "dependencies": [],
+          "config": {
+            "endpoint_id": "teams"
+          }
+        },
+        {
+          "id": "normal_drivers",
+          "type": "transform",
+          "dependencies": [
+            "drivers"
+          ],
+          "config": {
+            "operation": "select",
+            "fields": {
+              "id": "id",
+              "name": "profile.name"
+            }
+          }
+        },
+        {
+          "id": "normal_teams",
+          "type": "transform",
+          "dependencies": [
+            "teams"
+          ],
+          "config": {
+            "operation": "select",
+            "fields": {
+              "id": "id",
+              "name": "profile.name"
+            }
+          }
+        },
+        {
+          "id": "merge",
+          "type": "merge",
+          "dependencies": [
+            "normal_drivers",
+            "normal_teams"
+          ],
+          "config": {}
+        }
+      ]
+    }
+  ]
+}
